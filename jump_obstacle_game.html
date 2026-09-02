@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ジャンプ回避ゲーム</title>
+<style>
+:root{
+  color-scheme: light;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+}
+body{
+  margin:0;
+  padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));
+  background:#fff;
+  color:#000;
+}
+.wrap{
+  max-width:680px;
+  margin:0 auto;
+}
+h1{
+  text-align:center;
+  font-size:1.45rem;
+  margin:6px 0 8px;
+}
+.lead{
+  text-align:center;
+  line-height:1.5;
+  font-size:.93rem;
+  margin:0 0 10px;
+}
+.top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:8px;
+}
+.info{
+  display:flex;
+  gap:16px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+.controls{
+  display:flex;
+  gap:8px;
+}
+button{
+  font:inherit;
+  font-weight:700;
+  padding:10px 14px;
+  border:1px solid #bfc5cc;
+  border-radius:10px;
+  background:#fff;
+  color:#000;
+}
+button:disabled{opacity:.45}
+#status{
+  padding:9px 10px;
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  background:#f6f8fa;
+  margin-bottom:10px;
+  line-height:1.45;
+  font-size:.9rem;
+}
+canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  border:1px solid #d0d7de;
+  border-radius:12px;
+  background:#fff;
+}
+.sensor{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:8px;
+  margin-top:10px;
+}
+.card{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  text-align:center;
+  padding:8px 4px;
+}
+.label{
+  font-size:.78rem;
+  opacity:.7;
+}
+.value{
+  font-size:1.12rem;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+.note{
+  margin-top:10px;
+  font-size:.86rem;
+  line-height:1.55;
+  color:#444;
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+<h1>ジャンプ回避ゲーム</h1>
+
+<p class="lead">
+前から来る障害物を，実際にジャンプして飛び越えよう！
+</p>
+
+<div class="top">
+  <div class="info">
+    <div>得点：<span id="score">0</span></div>
+    <div>残り：<span id="time">30</span>秒</div>
+  </div>
+  <div class="controls">
+    <button id="start">ゲーム開始</button>
+    <button id="reset">リセット</button>
+  </div>
+</div>
+
+<div id="status">
+スマホを胸元にしっかり持ち，「ゲーム開始」を押してください．
+</div>
+
+<canvas id="game" width="640" height="720"></canvas>
+
+<div class="sensor">
+  <div class="card">
+    <div class="label">加速度</div>
+    <div class="value"><span id="amag">--</span> m/s²</div>
+  </div>
+  <div class="card">
+    <div class="label">状態</div>
+    <div class="value" id="jumpState">待機</div>
+  </div>
+  <div class="card">
+    <div class="label">滞空時間</div>
+    <div class="value"><span id="flight">--</span> s</div>
+  </div>
+</div>
+
+<div class="note">
+スマホを手だけで振ると誤判定しやすいため，胸元に近づけてしっかり持ってください．
+周囲に人や物がない安全な場所で遊んでください．
+</div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $("game");
+const ctx = canvas.getContext("2d");
+
+let running = false;
+let score = 0;
+let remaining = 30;
+let lastTs = 0;
+let timerAcc = 0;
+let spawnAcc = 0;
+
+let state = "ground";  // ground / airborne
+let takeoffTime = null;
+let lowAccelStart = null;
+let lastFlightSec = null;
+
+const FREEFALL_THRESHOLD = 3.5;
+const FREEFALL_MIN_MS = 60;
+const LANDING_THRESHOLD = 12.0;
+const MIN_FLIGHT_MS = 120;
+const MAX_FLIGHT_MS = 1800;
+
+const groundY = 600;
+
+const player = {
+  x: 115,
+  groundY: groundY,
+  y: groundY,
+  w: 54,
+  h: 92
+};
+
+let obstacles = [];
+
+function detectDevice(){
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const touch = navigator.maxTouchPoints || 0;
+
+  if(/iPhone/.test(ua)) return "iPhone";
+  if(/iPad/.test(ua) || (platform==="MacIntel" && touch>1)) return "iPad";
+  if(/Android/.test(ua)) return "Android";
+  return "その他";
+}
+
+function accelMagnitude(e){
+  const a = e.accelerationIncludingGravity;
+  if(!a) return null;
+
+  const x = Number.isFinite(a.x) ? a.x : 0;
+  const y = Number.isFinite(a.y) ? a.y : 0;
+  const z = Number.isFinite(a.z) ? a.z : 0;
+
+  return Math.sqrt(x*x + y*y + z*z);
+}
+
+function resetGame(clearAll=true){
+  running = false;
+  score = 0;
+  remaining = 30;
+  lastTs = 0;
+  timerAcc = 0;
+  spawnAcc = 0;
+  state = "ground";
+  takeoffTime = null;
+  lowAccelStart = null;
+  lastFlightSec = null;
+  obstacles = [];
+  player.y = player.groundY;
+
+  $("score").textContent = "0";
+  $("time").textContent = "30";
+  $("amag").textContent = "--";
+  $("jumpState").textContent = "待機";
+  $("flight").textContent = "--";
+  $("start").disabled = false;
+  $("status").textContent =
+    "スマホを胸元にしっかり持ち，「ゲーム開始」を押してください．";
+
+  draw();
+}
+
+function spawnObstacle(){
+  const h = 54 + Math.random()*34;
+  const w = 42 + Math.random()*28;
+
+  obstacles.push({
+    x: canvas.width + 30,
+    y: groundY - h,
+    w,
+    h,
+    speed: 260 + Math.random()*45,
+    passed:false
+  });
+}
+
+function onMotion(e){
+  if(!running) return;
+
+  const a = accelMagnitude(e);
+  if(a === null) return;
+
+  $("amag").textContent = a.toFixed(2);
+
+  const now = performance.now();
+
+  if(state === "ground"){
+    if(a < FREEFALL_THRESHOLD){
+      if(lowAccelStart === null){
+        lowAccelStart = now;
+      }
+
+      if(now - lowAccelStart >= FREEFALL_MIN_MS){
+        state = "airborne";
+        takeoffTime = lowAccelStart;
+        $("jumpState").textContent = "ジャンプ";
+        $("status").textContent = "ジャンプ中！";
+      }
+    }else{
+      lowAccelStart = null;
+    }
+
+  }else if(state === "airborne"){
+    const flightMs = now - takeoffTime;
+
+    if(flightMs > MAX_FLIGHT_MS){
+      state = "ground";
+      takeoffTime = null;
+      lowAccelStart = null;
+      player.y = player.groundY;
+      $("jumpState").textContent = "待機";
+      $("status").textContent = "判定をリセットしました．";
+      return;
+    }
+
+    if(flightMs >= MIN_FLIGHT_MS && a > LANDING_THRESHOLD){
+      const flightSec = flightMs/1000;
+      lastFlightSec = flightSec;
+
+      $("flight").textContent = flightSec.toFixed(3);
+      $("jumpState").textContent = "着地";
+      $("status").textContent =
+        "着地！ 滞空時間 " + flightSec.toFixed(3) + " s";
+
+      state = "ground";
+      takeoffTime = null;
+      lowAccelStart = null;
+    }
+  }
+}
+
+function updatePlayer(){
+  if(state === "airborne" && takeoffTime !== null){
+    const elapsed = (performance.now() - takeoffTime)/1000;
+
+    // 実際のジャンプ中だけ画面上でもジャンプ
+    // 最大0.75秒程度を想定した見やすい放物線風
+    const T = 0.75;
+    const p = Math.min(1, elapsed/T);
+    const jumpHeight = 165 * Math.sin(Math.PI*p);
+
+    player.y = player.groundY - jumpHeight;
+  }else{
+    // 着地後はなめらかに地面へ戻す
+    player.y += (player.groundY - player.y)*0.35;
+  }
+}
+
+function update(dt){
+  updatePlayer();
+
+  spawnAcc += dt;
+  if(spawnAcc > 1.65){
+    spawnAcc = 0;
+    spawnObstacle();
+  }
+
+  for(const o of obstacles){
+    o.x -= o.speed*dt;
+  }
+
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o = obstacles[i];
+
+    const playerLeft = player.x - player.w/2;
+    const playerRight = player.x + player.w/2;
+    const playerTop = player.y - player.h;
+    const playerBottom = player.y;
+
+    const obstacleLeft = o.x;
+    const obstacleRight = o.x + o.w;
+    const obstacleTop = o.y;
+    const obstacleBottom = o.y + o.h;
+
+    const hit =
+      playerRight > obstacleLeft &&
+      playerLeft < obstacleRight &&
+      playerBottom > obstacleTop &&
+      playerTop < obstacleBottom;
+
+    if(hit){
+      score = Math.max(0, score-2);
+      $("score").textContent = score;
+      obstacles.splice(i,1);
+      $("status").textContent = "障害物に当たった！";
+      continue;
+    }
+
+    if(!o.passed && o.x + o.w < playerLeft){
+      o.passed = true;
+      score++;
+      $("score").textContent = score;
+    }
+
+    if(o.x + o.w < -20){
+      obstacles.splice(i,1);
+    }
+  }
+
+  timerAcc += dt;
+  if(timerAcc >= 1){
+    timerAcc -= 1;
+    remaining--;
+    $("time").textContent = remaining;
+
+    if(remaining <= 0){
+      endGame();
+    }
+  }
+}
+
+function drawBackground(){
+  ctx.fillStyle = "#f7fbff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // 空
+  ctx.fillStyle = "#eef6ff";
+  ctx.fillRect(0,0,canvas.width,groundY);
+
+  // 地面
+  ctx.fillStyle = "#d9e6c5";
+  ctx.fillRect(0,groundY,canvas.width,canvas.height-groundY);
+
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0,groundY);
+  ctx.lineTo(canvas.width,groundY);
+  ctx.stroke();
+
+  // 流れる地面線
+  ctx.strokeStyle = "#b6c69f";
+  ctx.lineWidth = 2;
+  for(let x=0;x<canvas.width;x+=70){
+    ctx.beginPath();
+    ctx.moveTo(x,groundY+45);
+    ctx.lineTo(x+35,groundY+45);
+    ctx.stroke();
+  }
+}
+
+function drawPlayer(){
+  const x = player.x;
+  const y = player.y;
+
+  // 頭
+  ctx.fillStyle = "#f1c7a5";
+  ctx.beginPath();
+  ctx.arc(x, y-player.h+18, 18, 0, Math.PI*2);
+  ctx.fill();
+
+  // 体
+  ctx.fillStyle = "#2563eb";
+  ctx.fillRect(x-16, y-player.h+36, 32, 38);
+
+  // 足
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(x-8,y-18);
+  ctx.lineTo(x-15,y);
+  ctx.moveTo(x+8,y-18);
+  ctx.lineTo(x+15,y);
+  ctx.stroke();
+
+  // 手
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(x-14,y-player.h+45);
+  ctx.lineTo(x-29,y-player.h+58);
+  ctx.moveTo(x+14,y-player.h+45);
+  ctx.lineTo(x+29,y-player.h+58);
+  ctx.stroke();
+
+  // スマホ
+  ctx.fillStyle = "#111";
+  ctx.fillRect(x+23,y-player.h+48,10,19);
+}
+
+function drawObstacle(o){
+  ctx.fillStyle = "#ef4444";
+  ctx.fillRect(o.x,o.y,o.w,o.h);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("！",o.x+o.w/2,o.y+o.h/2+6);
+}
+
+function draw(){
+  drawBackground();
+
+  for(const o of obstacles){
+    drawObstacle(o);
+  }
+
+  drawPlayer();
+
+  if(!running){
+    ctx.fillStyle = "#333";
+    ctx.font = "26px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("障害物が来たらジャンプ！",canvas.width/2,280);
+  }
+}
+
+function loop(ts){
+  if(!running){
+    draw();
+    return;
+  }
+
+  if(!lastTs) lastTs = ts;
+  const dt = Math.min(0.05,(ts-lastTs)/1000);
+  lastTs = ts;
+
+  update(dt);
+  draw();
+
+  if(running){
+    requestAnimationFrame(loop);
+  }
+}
+
+async function requestSensor(){
+  if(!window.isSecureContext){
+    throw new Error("HTTPSで開いてください．");
+  }
+
+  if(typeof DeviceMotionEvent === "undefined"){
+    throw new Error("この端末では加速度センサーを利用できません．");
+  }
+
+  const device = detectDevice();
+
+  if(
+    (device==="iPhone" || device==="iPad") &&
+    typeof DeviceMotionEvent.requestPermission === "function"
+  ){
+    const result = await DeviceMotionEvent.requestPermission();
+    if(result !== "granted"){
+      throw new Error("センサー利用が許可されませんでした．");
+    }
+  }
+
+  window.removeEventListener("devicemotion",onMotion);
+  window.addEventListener("devicemotion",onMotion);
+}
+
+async function startGame(){
+  try{
+    await requestSensor();
+
+    score = 0;
+    remaining = 30;
+    lastTs = 0;
+    timerAcc = 0;
+    spawnAcc = 0;
+    state = "ground";
+    takeoffTime = null;
+    lowAccelStart = null;
+    lastFlightSec = null;
+    obstacles = [];
+    player.y = player.groundY;
+
+    $("score").textContent = "0";
+    $("time").textContent = "30";
+    $("flight").textContent = "--";
+    $("jumpState").textContent = "待機";
+
+    running = true;
+    $("start").disabled = true;
+
+    $("status").textContent =
+      detectDevice() + "：障害物が近づいたらジャンプしてください．";
+
+    requestAnimationFrame(loop);
+
+  }catch(err){
+    $("status").textContent = "開始できません：" + err.message;
+  }
+}
+
+function endGame(){
+  running = false;
+  $("start").disabled = false;
+  $("jumpState").textContent = "終了";
+  $("status").textContent = "ゲーム終了！ 得点は " + score + " 点です．";
+  draw();
+}
+
+$("start").addEventListener("click",startGame);
+$("reset").addEventListener("click",()=>resetGame(true));
+
+resetGame(true);
+</script>
+</body>
+</html>
