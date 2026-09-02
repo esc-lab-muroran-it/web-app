@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Android センサー計測</title>
+<style>
+:root{color-scheme:light;font-family:Roboto,-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:#fff;color:#000}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:1.5rem;margin:8px 0 12px}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{font:inherit;font-weight:700;padding:11px 16px;border:1px solid #c7cdd4;border-radius:10px;background:#fff;color:#000}
+button:disabled{opacity:.45}.sensor-select{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.sensor-btn{padding:14px;font-size:1.05rem}.sensor-btn.active{outline:3px solid rgba(0,120,255,.35);background:#f3f8ff}
+#status{padding:10px 12px;border:1px solid #d0d7de;border-radius:10px;margin-bottom:14px;background:#fff;line-height:1.5}
+.panel{border:1px solid #d0d7de;border-radius:12px;padding:12px;background:#fff}.panel h2{font-size:1.15rem;margin:0 0 10px}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}.card{border:1px solid #d0d7de;border-radius:12px;padding:10px;text-align:center;background:#fff}
+.label{font-size:.9rem;color:#555}.value{font-size:1.35rem;font-variant-numeric:tabular-nums}
+canvas{display:block;width:100%;height:320px;border-radius:8px;background:#fafafa;border:1px solid #e5e7eb}
+.legend{display:flex;gap:16px;margin-top:8px;font-size:.95rem}.legend span::before{content:"●";margin-right:5px}.x::before{color:#d33}.y::before{color:#2a7}.z::before{color:#37c}
+.note{font-size:.9rem;color:#555;margin-top:10px;line-height:1.5}
+@media(max-width:600px){canvas{height:280px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Android センサー計測</h1>
+<div class="buttons">
+<button id="start">センサー開始</button><button id="stop" disabled>停止</button><button id="clear">グラフ消去</button>
+</div>
+<div class="sensor-select">
+<button id="accelBtn" class="sensor-btn active">加速度</button>
+<button id="gyroBtn" class="sensor-btn">回転速度</button>
+</div>
+<div id="status">待機中</div>
+<div class="panel">
+<h2 id="graphTitle">加速度［m/s²］</h2>
+<div class="cards">
+<div class="card"><div id="label1" class="label">X</div><div id="value1" class="value">---</div></div>
+<div class="card"><div id="label2" class="label">Y</div><div id="value2" class="value">---</div></div>
+<div class="card"><div id="label3" class="label">Z</div><div id="value3" class="value">---</div></div>
+</div>
+<canvas id="graph"></canvas>
+<div class="legend"><span id="legend1" class="x">X</span><span id="legend2" class="y">Y</span><span id="legend3" class="z">Z</span></div>
+<div class="note">Android Chromeでの利用を想定しています．センサー値が取得できない場合は，HTTPSで公開されているページか確認してください．</div>
+</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);const canvas=$("graph"),ctx=canvas.getContext("2d");
+const MAX_POINTS=200,PLOT_INTERVAL=50;let mode="accel",running=false,lastPlot=0;
+const accelData={x:[],y:[],z:[]},gyroData={a:[],b:[],g:[]};
+let latestAccel={x:null,y:null,z:null},latestGyro={a:null,b:null,g:null};
+function fmt(v){return typeof v==="number"&&Number.isFinite(v)?v.toFixed(2):"---"}
+function push(a,v){a.push(v);if(a.length>MAX_POINTS)a.shift()}
+function setMode(m){mode=m;const accel=m==="accel";$("accelBtn").classList.toggle("active",accel);$("gyroBtn").classList.toggle("active",!accel);$("graphTitle").textContent=accel?"加速度［m/s²］":"回転速度［deg/s］";["label1","legend1"].forEach(id=>$(id).textContent=accel?"X":"α");["label2","legend2"].forEach(id=>$(id).textContent=accel?"Y":"β");["label3","legend3"].forEach(id=>$(id).textContent=accel?"Z":"γ");updateValues();drawGraph()}
+function updateValues(){const v=mode==="accel"?[latestAccel.x,latestAccel.y,latestAccel.z]:[latestGyro.a,latestGyro.b,latestGyro.g];$("value1").textContent=fmt(v[0]);$("value2").textContent=fmt(v[1]);$("value3").textContent=fmt(v[2])}
+function resizeCanvas(){const dpr=Math.max(1,devicePixelRatio||1),r=canvas.getBoundingClientRect();canvas.width=Math.round(r.width*dpr);canvas.height=Math.round(r.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);drawGraph()}
+function drawGraph(){const w=canvas.clientWidth,h=canvas.clientHeight;ctx.clearRect(0,0,w,h);let ymin,ymax,arrs;if(mode==="accel"){ymin=-20;ymax=20;arrs=[accelData.x,accelData.y,accelData.z]}else{ymin=-300;ymax=300;arrs=[gyroData.a,gyroData.b,gyroData.g]}
+ctx.lineWidth=1;ctx.strokeStyle="rgba(127,127,127,.25)";ctx.beginPath();for(let i=0;i<=6;i++){const y=i/6*h;ctx.moveTo(0,y);ctx.lineTo(w,y)}ctx.stroke();const zeroY=h-(0-ymin)/(ymax-ymin)*h;ctx.strokeStyle="rgba(127,127,127,.55)";ctx.beginPath();ctx.moveTo(0,zeroY);ctx.lineTo(w,zeroY);ctx.stroke();
+function plot(arr,color){if(arr.length<2)return;ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();arr.forEach((v,i)=>{const x=i/(MAX_POINTS-1)*w,value=Math.max(ymin,Math.min(ymax,v)),y=h-(value-ymin)/(ymax-ymin)*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
+plot(arrs[0],"#d33");plot(arrs[1],"#2a7");plot(arrs[2],"#37c");ctx.fillStyle="#666";ctx.font="12px sans-serif";ctx.fillText(String(ymax),5,14);ctx.fillText("0",5,Math.max(14,zeroY-4));ctx.fillText(String(ymin),5,h-5)}
+function onMotion(e){if(!running)return;const a=e.accelerationIncludingGravity||e.acceleration||{},r=e.rotationRate||{};latestAccel={x:a.x,y:a.y,z:a.z};latestGyro={a:r.alpha,b:r.beta,g:r.gamma};updateValues();const now=performance.now();if(now-lastPlot>=PLOT_INTERVAL){if(typeof a.x==="number"){push(accelData.x,a.x);push(accelData.y,a.y);push(accelData.z,a.z)}if(r&&typeof r.alpha==="number"){push(gyroData.a,r.alpha);push(gyroData.b,r.beta);push(gyroData.g,r.gamma)}lastPlot=now;drawGraph()}}
+async function startSensor(){try{if(!window.isSecureContext)throw new Error("HTTPSで開いてください．");if(typeof DeviceMotionEvent==="undefined")throw new Error("このブラウザではモーションセンサーを利用できません．");if(typeof DeviceMotionEvent.requestPermission==="function"){const p=await DeviceMotionEvent.requestPermission();if(p!=="granted")throw new Error("センサー利用が許可されませんでした．")}window.removeEventListener("devicemotion",onMotion);window.addEventListener("devicemotion",onMotion);running=true;$("start").disabled=true;$("stop").disabled=false;$("status").textContent="計測中：Android端末を動かしてください．"}catch(err){$("status").textContent="開始できません："+err.message}}
+function stopSensor(){running=false;window.removeEventListener("devicemotion",onMotion);$("start").disabled=false;$("stop").disabled=true;$("status").textContent="停止中"}
+function clearGraph(){Object.values(accelData).forEach(a=>a.length=0);Object.values(gyroData).forEach(a=>a.length=0);drawGraph()}
+$("accelBtn").onclick=()=>setMode("accel");$("gyroBtn").onclick=()=>setMode("gyro");$("start").onclick=startSensor;$("stop").onclick=stopSensor;$("clear").onclick=clearGraph;addEventListener("resize",resizeCanvas);resizeCanvas();
+</script>
+</body>
+</html>
