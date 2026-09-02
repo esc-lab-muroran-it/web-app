@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>加速度センサーゲーム</title>
+<style>
+:root{
+  color-scheme: light;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+}
+body{
+  margin:0;
+  background:#fff;
+  color:#000;
+  padding:max(14px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom));
+}
+.wrap{
+  max-width:520px;
+  margin:0 auto;
+}
+h1{
+  font-size:1.4rem;
+  margin:6px 0 10px;
+}
+.info{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:10px;
+  font-weight:700;
+}
+.status{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  padding:9px 10px;
+  margin-bottom:10px;
+  background:#f6f8fa;
+  font-size:.92rem;
+}
+.controls{
+  display:flex;
+  gap:8px;
+  margin-bottom:10px;
+}
+button{
+  flex:1;
+  font:inherit;
+  font-weight:700;
+  padding:11px 12px;
+  border:1px solid #bfc5cc;
+  border-radius:10px;
+  background:#fff;
+  color:#000;
+}
+button:disabled{
+  opacity:.45;
+}
+canvas{
+  width:100%;
+  height:auto;
+  display:block;
+  border:1px solid #d0d7de;
+  border-radius:12px;
+  background:#fafafa;
+  touch-action:none;
+}
+.note{
+  margin-top:10px;
+  font-size:.9rem;
+  line-height:1.5;
+  color:#444;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>加速度センサーゲーム</h1>
+
+  <div class="info">
+    <div>得点：<span id="score">0</span></div>
+    <div>残り：<span id="time">30</span> 秒</div>
+  </div>
+
+  <div id="status" class="status">「ゲーム開始」を押してください．</div>
+
+  <div class="controls">
+    <button id="start">ゲーム開始</button>
+    <button id="reset">リセット</button>
+  </div>
+
+  <canvas id="game" width="480" height="700"></canvas>
+
+  <div class="note">
+    スマホを左右に傾けると，下のバーが左右に動きます．
+    落ちてくるボールをキャッチしてください．
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const timeEl = document.getElementById("time");
+const statusEl = document.getElementById("status");
+const startBtn = document.getElementById("start");
+const resetBtn = document.getElementById("reset");
+
+let running = false;
+let score = 0;
+let remaining = 30;
+let lastTime = 0;
+let spawnTimer = 0;
+let timerAccumulator = 0;
+
+const player = {
+  x: canvas.width/2 - 55,
+  y: canvas.height - 60,
+  w: 110,
+  h: 20,
+  speed: 0
+};
+
+let balls = [];
+
+function detectDevice(){
+  const ua = navigator.userAgent || "";
+  if(/iPhone|iPad|iPod/.test(ua)) return "iOS";
+  if(/Android/.test(ua)) return "Android";
+  return "その他";
+}
+
+function clamp(v,min,max){
+  return Math.max(min,Math.min(max,v));
+}
+
+function resetGame(){
+  running = false;
+  score = 0;
+  remaining = 30;
+  balls = [];
+  player.x = canvas.width/2 - player.w/2;
+  player.speed = 0;
+  lastTime = 0;
+  spawnTimer = 0;
+  timerAccumulator = 0;
+  scoreEl.textContent = "0";
+  timeEl.textContent = "30";
+  startBtn.disabled = false;
+  statusEl.textContent = "「ゲーム開始」を押してください．";
+  draw();
+}
+
+function spawnBall(){
+  const r = 14 + Math.random()*8;
+  balls.push({
+    x: r + Math.random()*(canvas.width-2*r),
+    y: -r,
+    r: r,
+    vy: 170 + Math.random()*80
+  });
+}
+
+function update(dt){
+  player.x += player.speed * dt;
+  player.x = clamp(player.x,0,canvas.width-player.w);
+
+  spawnTimer += dt;
+  if(spawnTimer > 0.75){
+    spawnTimer = 0;
+    spawnBall();
+  }
+
+  timerAccumulator += dt;
+  if(timerAccumulator >= 1){
+    timerAccumulator -= 1;
+    remaining--;
+    timeEl.textContent = remaining;
+    if(remaining <= 0){
+      endGame();
+      return;
+    }
+  }
+
+  for(const b of balls){
+    b.y += b.vy * dt;
+  }
+
+  for(let i=balls.length-1;i>=0;i--){
+    const b = balls[i];
+
+    const hitX = b.x + b.r > player.x && b.x - b.r < player.x + player.w;
+    const hitY = b.y + b.r > player.y && b.y - b.r < player.y + player.h;
+
+    if(hitX && hitY){
+      score++;
+      scoreEl.textContent = score;
+      balls.splice(i,1);
+      continue;
+    }
+
+    if(b.y - b.r > canvas.height){
+      balls.splice(i,1);
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // guide
+  ctx.strokeStyle = "#d8dee4";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2, 0);
+  ctx.lineTo(canvas.width/2, canvas.height);
+  ctx.stroke();
+
+  // balls
+  for(const b of balls){
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fillStyle = "#4a90e2";
+    ctx.fill();
+  }
+
+  // player
+  ctx.fillStyle = "#222";
+  ctx.fillRect(player.x,player.y,player.w,player.h);
+
+  // arrow hint
+  if(!running){
+    ctx.fillStyle = "#666";
+    ctx.font = "24px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("← スマホを左右に傾ける →",canvas.width/2,canvas.height/2);
+  }
+}
+
+function loop(ts){
+  if(!running){
+    draw();
+    return;
+  }
+
+  if(!lastTime) lastTime = ts;
+  const dt = Math.min(0.05,(ts-lastTime)/1000);
+  lastTime = ts;
+
+  update(dt);
+  draw();
+
+  if(running) requestAnimationFrame(loop);
+}
+
+function onOrientation(e){
+  // gamma: 左右の傾き（概ね -90 ～ +90 deg）
+  const gamma = e.gamma;
+
+  if(typeof gamma !== "number") return;
+
+  // 小さな傾きは無視
+  let g = Math.abs(gamma) < 2 ? 0 : gamma;
+
+  // 傾きに比例して横速度を決める
+  player.speed = clamp(g / 35, -1, 1) * 420;
+}
+
+async function requestSensorPermission(){
+  const device = detectDevice();
+
+  if(!window.isSecureContext){
+    throw new Error("HTTPSで開いてください．");
+  }
+
+  if(typeof DeviceOrientationEvent === "undefined"){
+    throw new Error("この端末では姿勢センサーを利用できません．");
+  }
+
+  // iPhone/iPad Safari
+  if(
+    device === "iOS" &&
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  ){
+    const result = await DeviceOrientationEvent.requestPermission();
+    if(result !== "granted"){
+      throw new Error("センサー利用が許可されませんでした．");
+    }
+  }
+
+  window.removeEventListener("deviceorientation", onOrientation);
+  window.addEventListener("deviceorientation", onOrientation);
+}
+
+async function startGame(){
+  try{
+    await requestSensorPermission();
+
+    score = 0;
+    remaining = 30;
+    balls = [];
+    player.x = canvas.width/2 - player.w/2;
+    player.speed = 0;
+
+    scoreEl.textContent = score;
+    timeEl.textContent = remaining;
+
+    running = true;
+    lastTime = 0;
+    spawnTimer = 0;
+    timerAccumulator = 0;
+
+    startBtn.disabled = true;
+    statusEl.textContent = detectDevice() + "：スマホを左右に傾けてください．";
+
+    requestAnimationFrame(loop);
+  }catch(err){
+    statusEl.textContent = "開始できません：" + err.message;
+  }
+}
+
+function endGame(){
+  running = false;
+  startBtn.disabled = false;
+  statusEl.textContent = "ゲーム終了！ 得点は " + score + " 点です．";
+  draw();
+}
+
+startBtn.addEventListener("click",startGame);
+resetBtn.addEventListener("click",resetGame);
+
+resetGame();
+</script>
+</body>
+</html>
