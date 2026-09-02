@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>加速度センサー ばね振動</title>
+<style>
+:root{
+  color-scheme:light;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+}
+body{
+  margin:0;
+  padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));
+  background:#fff;
+  color:#000;
+}
+.wrap{
+  max-width:620px;
+  margin:0 auto;
+}
+h1{
+  font-size:1.4rem;
+  margin:6px 0 8px;
+  text-align:center;
+}
+.sub{
+  margin:0 0 10px;
+  text-align:center;
+  line-height:1.5;
+  font-size:.92rem;
+}
+.controls{
+  display:flex;
+  gap:8px;
+  margin-bottom:10px;
+}
+button{
+  flex:1;
+  font:inherit;
+  font-weight:700;
+  padding:10px 12px;
+  border:1px solid #bfc5cc;
+  border-radius:10px;
+  background:#fff;
+  color:#000;
+}
+button:disabled{opacity:.45}
+#status{
+  padding:9px 10px;
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  background:#f6f8fa;
+  margin-bottom:10px;
+  line-height:1.45;
+  font-size:.9rem;
+}
+.cards{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:7px;
+  margin-bottom:10px;
+}
+.card{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  padding:8px 5px;
+  text-align:center;
+  background:#fff;
+}
+.label{
+  font-size:.78rem;
+  opacity:.7;
+}
+.value{
+  font-size:1.12rem;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  border:1px solid #d0d7de;
+  border-radius:12px;
+  background:#fff;
+}
+.note{
+  margin-top:9px;
+  font-size:.88rem;
+  line-height:1.55;
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <h1>加速度センサー ばね振動</h1>
+  <p class="sub">
+    スマホを縦向きに持ち，上下に振ってください．
+    加速度に応じて支点が上下し，おもりが振動します．
+  </p>
+
+  <div class="controls">
+    <button id="start">計測開始</button>
+    <button id="stop" disabled>停止</button>
+    <button id="invert">方向反転</button>
+  </div>
+
+  <div id="status">待機中</div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">上下加速度</div>
+      <div class="value"><span id="accel">0.00</span> m/s²</div>
+    </div>
+    <div class="card">
+      <div class="label">支点変位</div>
+      <div class="value"><span id="support">0.0</span> px</div>
+    </div>
+    <div class="card">
+      <div class="label">ばね伸び</div>
+      <div class="value"><span id="stretch">0.0</span> px</div>
+    </div>
+  </div>
+
+  <canvas id="sim" width="520" height="760"></canvas>
+
+  <div class="note">
+    支点はスマホの上下加速度に応じて動きます．おもりは慣性のため支点と同時には動かず，
+    その差によってばねが伸び縮みします．端末によって上下方向が逆に見える場合は
+    「方向反転」を押してください．
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $("sim");
+const ctx = canvas.getContext("2d");
+
+let running = false;
+let invert = 1;
+let measuredAy = 0;
+let fallbackBias = null;
+
+let lastT = performance.now();
+
+// 支点
+const supportBaseY = 135;
+let supportY = supportBaseY;
+let supportYPrev = supportBaseY;
+let supportTargetY = supportBaseY;
+
+// おもり
+const mass = {
+  x: canvas.width/2,
+  y: 410,
+  v: 0,
+  w: 100,
+  h: 72
+};
+
+// ばねモデル（画面上の見やすさを優先した無次元パラメータ）
+const restLength = 235;
+const springK = 32;     // 1/s^2
+const damping = 2.2;    // 1/s
+const gravity = 310;    // px/s^2
+
+function detectDevice(){
+  const ua = navigator.userAgent || "";
+  if(/iPhone|iPad|iPod/.test(ua)) return "iOS";
+  if(/Android/.test(ua)) return "Android";
+  return "その他";
+}
+
+function clamp(v,min,max){
+  return Math.max(min,Math.min(max,v));
+}
+
+function getVerticalAcceleration(e){
+  // 通常はこちら：重力を除いた加速度
+  if(e.acceleration && Number.isFinite(e.acceleration.y)){
+    return e.acceleration.y;
+  }
+
+  // acceleration が取れない端末用：
+  // accelerationIncludingGravity の静止値を基準として差分を使う
+  if(e.accelerationIncludingGravity &&
+     Number.isFinite(e.accelerationIncludingGravity.y)){
+    const y = e.accelerationIncludingGravity.y;
+    if(fallbackBias === null) fallbackBias = y;
+    fallbackBias = 0.995 * fallbackBias + 0.005 * y;
+    return y - fallbackBias;
+  }
+
+  return 0;
+}
+
+function onMotion(e){
+  if(!running) return;
+
+  const ay = getVerticalAcceleration(e);
+  measuredAy = ay * invert;
+
+  // 加速度を支点の上下変位へ変換
+  // ±約8 m/s²で最大±90 px
+  const shift = clamp(measuredAy * 11.0, -90, 90);
+  supportTargetY = supportBaseY - shift;
+
+  $("accel").textContent = measuredAy.toFixed(2);
+}
+
+async function startSensor(){
+  try{
+    if(!window.isSecureContext){
+      throw new Error("HTTPSで開いてください．");
+    }
+
+    if(typeof DeviceMotionEvent === "undefined"){
+      throw new Error("この端末では加速度センサーを利用できません．");
+    }
+
+    if(
+      detectDevice() === "iOS" &&
+      typeof DeviceMotionEvent.requestPermission === "function"
+    ){
+      const result = await DeviceMotionEvent.requestPermission();
+      if(result !== "granted"){
+        throw new Error("センサー利用が許可されませんでした．");
+      }
+    }
+
+    fallbackBias = null;
+    window.removeEventListener("devicemotion", onMotion);
+    window.addEventListener("devicemotion", onMotion);
+
+    running = true;
+    $("start").disabled = true;
+    $("stop").disabled = false;
+    $("status").textContent =
+      detectDevice() + "：スマホを縦向きに持って上下に振ってください．";
+
+  }catch(err){
+    $("status").textContent = "開始できません：" + err.message;
+  }
+}
+
+function stopSensor(){
+  running = false;
+  window.removeEventListener("devicemotion", onMotion);
+  measuredAy = 0;
+  supportTargetY = supportBaseY;
+  $("accel").textContent = "0.00";
+  $("start").disabled = false;
+  $("stop").disabled = true;
+  $("status").textContent = "停止中";
+}
+
+function resetPhysics(){
+  supportY = supportBaseY;
+  supportYPrev = supportBaseY;
+  supportTargetY = supportBaseY;
+
+  // 静止時のつり合い位置に近いところへ
+  mass.y = supportBaseY + restLength + gravity / springK;
+  mass.v = 0;
+}
+
+function update(dt){
+  // 支点をセンサ入力へ滑らかに追従
+  supportY += (supportTargetY - supportY) * Math.min(1, dt * 14);
+
+  const supportV = (supportY - supportYPrev) / Math.max(dt,0.001);
+  supportYPrev = supportY;
+
+  const springLength = mass.y - supportY;
+  const extension = springLength - restLength;
+
+  // 下向きを正とした1自由度ばね質量系
+  const relativeV = mass.v - supportV;
+  const a =
+    -springK * extension
+    -damping * relativeV
+    +gravity;
+
+  mass.v += a * dt;
+  mass.y += mass.v * dt;
+
+  // 表示が画面外へ飛びにくいように制限
+  if(mass.y < supportY + 110){
+    mass.y = supportY + 110;
+    mass.v *= -0.15;
+  }
+  if(mass.y > canvas.height - 70){
+    mass.y = canvas.height - 70;
+    mass.v *= -0.15;
+  }
+
+  $("support").textContent = (supportY - supportBaseY).toFixed(1);
+  $("stretch").textContent = extension.toFixed(1);
+}
+
+function drawSpring(x, y1, y2){
+  const topLead = 18;
+  const bottomLead = 18;
+  const coils = 12;
+  const amp = 25;
+
+  const startY = y1 + topLead;
+  const endY = y2 - bottomLead;
+
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x, y1);
+  ctx.lineTo(x, startY);
+
+  const segments = coils * 2;
+  for(let i=0;i<=segments;i++){
+    const t = i/segments;
+    const y = startY + (endY-startY)*t;
+    let xx = x;
+    if(i>0 && i<segments){
+      xx = x + (i%2===0 ? -amp : amp);
+    }
+    ctx.lineTo(xx,y);
+  }
+
+  ctx.lineTo(x,y2);
+  ctx.stroke();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // 説明ラベル
+  ctx.fillStyle = "#555";
+  ctx.font = "20px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("支点", 34, supportY + 7);
+
+  // 支点
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.moveTo(115,supportY);
+  ctx.lineTo(405,supportY);
+  ctx.stroke();
+
+  // 壁側ハッチ
+  ctx.lineWidth = 2;
+  for(let x=125;x<405;x+=22){
+    ctx.beginPath();
+    ctx.moveTo(x,supportY-1);
+    ctx.lineTo(x-13,supportY-16);
+    ctx.stroke();
+  }
+
+  // ばね
+  const massTop = mass.y - mass.h/2;
+  drawSpring(mass.x, supportY, massTop);
+
+  // おもり
+  ctx.fillStyle = "#d9dde3";
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 4;
+  ctx.fillRect(mass.x-mass.w/2, mass.y-mass.h/2, mass.w, mass.h);
+  ctx.strokeRect(mass.x-mass.w/2, mass.y-mass.h/2, mass.w, mass.h);
+
+  ctx.fillStyle = "#222";
+  ctx.font = "22px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("おもり", mass.x, mass.y+8);
+
+  // 上下方向
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 3;
+  const ax = 455;
+  ctx.beginPath();
+  ctx.moveTo(ax, supportY-42);
+  ctx.lineTo(ax, supportY+42);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(ax,supportY-42);
+  ctx.lineTo(ax-8,supportY-28);
+  ctx.moveTo(ax,supportY-42);
+  ctx.lineTo(ax+8,supportY-28);
+  ctx.moveTo(ax,supportY+42);
+  ctx.lineTo(ax-8,supportY+28);
+  ctx.moveTo(ax,supportY+42);
+  ctx.lineTo(ax+8,supportY+28);
+  ctx.stroke();
+
+  ctx.fillStyle = "#555";
+  ctx.font = "17px sans-serif";
+  ctx.fillText("加速度", 455, supportY+68);
+}
+
+function loop(now){
+  let dt = (now-lastT)/1000;
+  lastT = now;
+  dt = Math.min(0.025, Math.max(0.001,dt));
+
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+$("start").addEventListener("click",startSensor);
+$("stop").addEventListener("click",stopSensor);
+
+$("invert").addEventListener("click",()=>{
+  invert *= -1;
+  $("status").textContent =
+    "上下方向を反転しました．スマホを上下に振って確認してください．";
+});
+
+resetPhysics();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
