@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>姿勢センサ 3D安定化デモ</title>
+<style>
+:root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
+body{margin:0;padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));background:#fff;color:#000}
+.wrap{max-width:680px;margin:0 auto}
+h1{text-align:center;font-size:1.45rem;margin:6px 0 8px}
+.lead{text-align:center;font-size:.92rem;line-height:1.55;margin:0 0 10px}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+button{font:inherit;font-weight:700;padding:11px 10px;border:1px solid #bfc5cc;border-radius:10px;background:#fff;color:#000}
+button:disabled{opacity:.45}
+#status{border:1px solid #d0d7de;border-radius:10px;padding:9px 10px;background:#f6f8fa;margin-bottom:10px;font-size:.9rem;line-height:1.45}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.card{border:1px solid #d0d7de;border-radius:10px;padding:8px 4px;text-align:center}
+.label{font-size:.78rem;opacity:.7}.value{font-size:1.18rem;font-weight:700;font-variant-numeric:tabular-nums}
+canvas{display:block;width:100%;height:auto;border:1px solid #d0d7de;border-radius:12px;background:#fafafa}
+.legend{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:.86rem}
+.badge{display:inline-block;padding:3px 8px;border:1px solid #c8cdd2;border-radius:999px;background:#fff}
+.note{margin-top:10px;font-size:.87rem;line-height:1.55;color:#444}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>姿勢センサ 3D安定化デモ</h1>
+<p class="lead">スマホを傾けても，姿勢角を使って画面内の3Dオブジェクトを逆向きに回転させ，空間に対して同じ向きを保つように表示します．</p>
+
+<div class="controls">
+<button id="start">センサー開始</button>
+<button id="calibrate" disabled>基準姿勢を設定</button>
+<button id="toggle" disabled>補償：ON</button>
+<button id="stop" disabled>停止</button>
+</div>
+
+<div id="status">スマホを縦向きに持ち，「センサー開始」を押してください．</div>
+
+<div class="cards">
+<div class="card"><div class="label">α：Z軸まわり</div><div class="value"><span id="alpha">--</span>°</div></div>
+<div class="card"><div class="label">β：X軸まわり</div><div class="value"><span id="beta">--</span>°</div></div>
+<div class="card"><div class="label">γ：Y軸まわり</div><div class="value"><span id="gamma">--</span>°</div></div>
+</div>
+
+<canvas id="scene" width="640" height="520"></canvas>
+
+<div class="legend">
+<span class="badge">中央の十字：画面に固定</span>
+<span class="badge">3D物体：姿勢補償</span>
+</div>
+
+<div class="note">
+最初に取得した姿勢を基準とします．スマホを前後・左右・ひねる方向に動かすと姿勢角は変化しますが，補償ONではその回転と逆向きに3D物体を回転させます．「補償：OFF」で比較できます．
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$("scene"),ctx=canvas.getContext("2d");
+
+let running=false,compensationOn=true,calibrated=false;
+let latest={alpha:0,beta:0,gamma:0};
+let refR=I3(),compR=I3();
+
+function detectDevice(){
+ const ua=navigator.userAgent||"",p=navigator.platform||"",t=navigator.maxTouchPoints||0;
+ if(/iPhone/.test(ua)) return "iPhone";
+ if(/iPad/.test(ua)||(p==="MacIntel"&&t>1)) return "iPad";
+ if(/Android/.test(ua)) return "Android";
+ return "その他";
+}
+function I3(){return [[1,0,0],[0,1,0],[0,0,1]]}
+function mul(A,B){
+ let C=[[0,0,0],[0,0,0],[0,0,0]];
+ for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[i][j]=A[i][0]*B[0][j]+A[i][1]*B[1][j]+A[i][2]*B[2][j];
+ return C;
+}
+function T(A){return [[A[0][0],A[1][0],A[2][0]],[A[0][1],A[1][1],A[2][1]],[A[0][2],A[1][2],A[2][2]]]}
+function rx(a){let c=Math.cos(a),s=Math.sin(a);return [[1,0,0],[0,c,-s],[0,s,c]]}
+function ry(a){let c=Math.cos(a),s=Math.sin(a);return [[c,0,s],[0,1,0],[-s,0,c]]}
+function rz(a){let c=Math.cos(a),s=Math.sin(a);return [[c,-s,0],[s,c,0],[0,0,1]]}
+function RfromAngles(a,b,g){
+ a*=Math.PI/180;b*=Math.PI/180;g*=Math.PI/180;
+ return mul(mul(rz(a),rx(b)),ry(g));
+}
+function applyR(R,p){return{x:R[0][0]*p.x+R[0][1]*p.y+R[0][2]*p.z,y:R[1][0]*p.x+R[1][1]*p.y+R[1][2]*p.z,z:R[2][0]*p.x+R[2][1]*p.y+R[2][2]*p.z}}
+
+function calibrate(){
+ refR=RfromAngles(latest.alpha,latest.beta,latest.gamma);
+ calibrated=true; updateComp();
+ $("status").textContent="基準姿勢を設定しました．スマホをゆっくり傾けてください．";
+}
+function updateComp(){
+ if(!calibrated||!compensationOn){compR=I3();return}
+ const cur=RfromAngles(latest.alpha,latest.beta,latest.gamma);
+ const rel=mul(T(refR),cur);
+ compR=T(rel);
+}
+function onOrientation(e){
+ if(!running)return;
+ if(Number.isFinite(e.alpha))latest.alpha=e.alpha;
+ if(Number.isFinite(e.beta))latest.beta=e.beta;
+ if(Number.isFinite(e.gamma))latest.gamma=e.gamma;
+ $("alpha").textContent=latest.alpha.toFixed(1);
+ $("beta").textContent=latest.beta.toFixed(1);
+ $("gamma").textContent=latest.gamma.toFixed(1);
+ if(!calibrated) calibrate(); else updateComp();
+}
+
+function project(p){
+ const d=7.5,f=310,s=f/Math.max(2,d-p.z);
+ return{x:canvas.width/2+p.x*s,y:250-p.y*s,z:p.z};
+}
+function tr(p){return project(applyR(compR,p))}
+
+const V=[
+{x:-1.25,y:-3.1,z:-.95},{x:1.25,y:-3.1,z:-.95},{x:1.25,y:3.1,z:-.95},{x:-1.25,y:3.1,z:-.95},
+{x:-1.25,y:-3.1,z:.95},{x:1.25,y:-3.1,z:.95},{x:1.25,y:3.1,z:.95},{x:-1.25,y:3.1,z:.95}
+];
+const F=[
+{ids:[0,1,2,3],c:"#5B8FF9"},
+{ids:[4,5,6,7],c:"#61DDAA"},
+{ids:[0,4,7,3],c:"#F6BD16"},
+{ids:[1,5,6,2],c:"#E8684A"},
+{ids:[3,2,6,7],c:"#9270CA"},
+{ids:[0,1,5,4],c:"#6DC8EC"}
+];
+
+function drawArrow(){
+ const p0=tr({x:0,y:3.25,z:0}),p1=tr({x:0,y:4.55,z:0});
+ ctx.strokeStyle="#d33";ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+ const dx=p1.x-p0.x,dy=p1.y-p0.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,px=-uy,py=ux;
+ ctx.fillStyle="#d33";ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p1.x-ux*22+px*11,p1.y-uy*22+py*11);ctx.lineTo(p1.x-ux*22-px*11,p1.y-uy*22-py*11);ctx.closePath();ctx.fill();
+}
+function drawObject(){
+ const P=V.map(tr);
+ const fs=F.map(f=>({f,z:f.ids.reduce((s,id)=>s+P[id].z,0)/f.ids.length})).sort((a,b)=>a.z-b.z);
+ for(const q of fs){
+  const ids=q.f.ids;ctx.beginPath();ctx.moveTo(P[ids[0]].x,P[ids[0]].y);
+  for(let i=1;i<ids.length;i++)ctx.lineTo(P[ids[i]].x,P[ids[i]].y);
+  ctx.closePath();ctx.fillStyle=q.f.c;ctx.fill();ctx.strokeStyle="#26344d";ctx.lineWidth=2.5;ctx.stroke();
+ }
+ drawArrow();
+ const l=tr({x:0,y:0,z:1.02});ctx.fillStyle="#111";ctx.font="bold 24px sans-serif";ctx.textAlign="center";ctx.fillText("3D",l.x,l.y+8);
+}
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ const g=ctx.createLinearGradient(0,0,0,canvas.height);g.addColorStop(0,"#fff");g.addColorStop(1,"#eef3f8");ctx.fillStyle=g;ctx.fillRect(0,0,canvas.width,canvas.height);
+ const cx=canvas.width/2,cy=250;
+ ctx.strokeStyle="rgba(70,70,70,.24)";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx-120,cy);ctx.lineTo(cx+120,cy);ctx.moveTo(cx,cy-120);ctx.lineTo(cx,cy+120);ctx.stroke();
+ drawObject();
+ ctx.fillStyle="#333";ctx.font="bold 18px sans-serif";ctx.textAlign="left";ctx.fillText(compensationOn?"姿勢補償 ON":"姿勢補償 OFF",18,32);
+}
+function loop(){draw();requestAnimationFrame(loop)}
+
+async function startSensor(){
+ try{
+  if(!window.isSecureContext)throw new Error("HTTPSで開いてください．");
+  if(typeof DeviceOrientationEvent==="undefined")throw new Error("この端末では姿勢センサーを利用できません．");
+  const d=detectDevice();
+  if((d==="iPhone"||d==="iPad")&&typeof DeviceOrientationEvent.requestPermission==="function"){
+   const r=await DeviceOrientationEvent.requestPermission();
+   if(r!=="granted")throw new Error("センサー利用が許可されませんでした．");
+  }
+  latest={alpha:0,beta:0,gamma:0};calibrated=false;compensationOn=true;compR=I3();
+  window.removeEventListener("deviceorientation",onOrientation);
+  window.addEventListener("deviceorientation",onOrientation);
+  running=true;
+  $("start").disabled=true;$("calibrate").disabled=false;$("toggle").disabled=false;$("stop").disabled=false;$("toggle").textContent="補償：ON";
+  $("status").textContent=d+"：姿勢を取得中です．現在の姿勢を基準に設定します．";
+ }catch(err){$("status").textContent="開始できません："+err.message}
+}
+function stopSensor(){
+ running=false;window.removeEventListener("deviceorientation",onOrientation);calibrated=false;compR=I3();
+ $("start").disabled=false;$("calibrate").disabled=true;$("toggle").disabled=true;$("stop").disabled=true;
+ $("alpha").textContent="--";$("beta").textContent="--";$("gamma").textContent="--";$("status").textContent="停止中";
+}
+$("start").addEventListener("click",startSensor);
+$("calibrate").addEventListener("click",calibrate);
+$("toggle").addEventListener("click",()=>{compensationOn=!compensationOn;$("toggle").textContent=compensationOn?"補償：ON":"補償：OFF";updateComp()});
+$("stop").addEventListener("click",stopSensor);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
