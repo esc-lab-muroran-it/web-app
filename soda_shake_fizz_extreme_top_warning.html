@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>炭酸ジュース ふってシュワー！ 超強化版</title>
+<style>
+:root{
+  color-scheme:light;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));
+  background:#fff;
+  color:#111;
+}
+.wrap{
+  max-width:640px;
+  margin:0 auto;
+  text-align:center;
+}
+h1{
+  font-size:1.55rem;
+  margin:8px 0 6px;
+}
+.lead{
+  margin:0 0 12px;
+  line-height:1.55;
+  font-size:.94rem;
+}
+.controls{
+  display:flex;
+  gap:8px;
+  margin-bottom:10px;
+}
+button{
+  flex:1;
+  font:inherit;
+  font-weight:700;
+  padding:11px 10px;
+  border:1px solid #bfc5cc;
+  border-radius:10px;
+  background:#fff;
+  color:#111;
+}
+button:disabled{opacity:.45}
+#status{
+  padding:10px 12px;
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  background:#f6f8fa;
+  margin-bottom:12px;
+  line-height:1.45;
+}
+.scene{
+  position:relative;
+  width:100%;
+  height:570px;
+  border:1px solid #d0d7de;
+  border-radius:16px;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 50% 85%, rgba(200,230,255,.48), transparent 38%),
+    linear-gradient(#ffffff,#eef6ff);
+}
+.can{
+  position:absolute;
+  left:50%;
+  bottom:55px;
+  width:180px;
+  height:310px;
+  transform:translateX(-50%);
+  border-radius:24px 24px 30px 30px;
+  border:4px solid #25324a;
+  background:
+    linear-gradient(90deg,rgba(255,255,255,.35),transparent 28%,transparent 72%,rgba(0,0,0,.08)),
+    linear-gradient(#ff5a5f,#e9333f);
+  box-shadow:0 12px 24px rgba(0,0,0,.12);
+}
+.can:before{
+  content:"";
+  position:absolute;
+  left:8px; right:8px; top:-15px;
+  height:30px;
+  border:4px solid #25324a;
+  border-radius:50%;
+  background:#cfd5dc;
+}
+.can:after{
+  content:"";
+  position:absolute;
+  left:12px; right:12px; bottom:-11px;
+  height:22px;
+  border:4px solid #25324a;
+  border-radius:50%;
+  background:#cfd5dc;
+}
+.logo{
+  position:absolute;
+  left:0; right:0; top:92px;
+  color:#fff;
+  font-size:2.1rem;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-shadow:0 2px 0 rgba(0,0,0,.12);
+}
+.sublogo{
+  position:absolute;
+  left:0; right:0; top:145px;
+  color:#fff;
+  font-weight:700;
+  opacity:.95;
+}
+.tab{
+  position:absolute;
+  left:50%;
+  top:-3px;
+  width:48px;
+  height:16px;
+  border-radius:50%;
+  border:3px solid #6e7882;
+  background:#e6e9ed;
+  transform:translateX(-50%);
+}
+
+/* 揺れを大きく・長く */
+.shake{
+  animation:shakeBig .24s linear 4;
+}
+@keyframes shakeBig{
+  0%{transform:translateX(-50%) rotate(0deg)}
+  12%{transform:translateX(calc(-50% - 20px)) rotate(-7deg)}
+  25%{transform:translateX(calc(-50% + 22px)) rotate(7deg)}
+  38%{transform:translateX(calc(-50% - 16px)) rotate(-6deg)}
+  50%{transform:translateX(calc(-50% + 18px)) rotate(6deg)}
+  63%{transform:translateX(calc(-50% - 12px)) rotate(-4deg)}
+  75%{transform:translateX(calc(-50% + 14px)) rotate(4deg)}
+  88%{transform:translateX(calc(-50% - 6px)) rotate(-2deg)}
+  100%{transform:translateX(-50%) rotate(0deg)}
+}
+.pop{
+  animation:pop .9s ease-out;
+}
+@keyframes pop{
+  0%{transform:translateX(-50%) scale(1)}
+  20%{transform:translateX(-50%) scale(1.06)}
+  45%{transform:translateX(-50%) scale(1.11)}
+  100%{transform:translateX(-50%) scale(1)}
+}
+
+/* 泡をより長く激しく */
+.foam{
+  position:absolute;
+  left:50%;
+  bottom:348px;
+  width:260px;
+  height:0;
+  transform:translateX(-50%);
+  opacity:0;
+  pointer-events:none;
+}
+.foam.active{
+  animation:foamBlast 5.3s ease-out forwards;
+}
+@keyframes foamBlast{
+  0%{height:0;opacity:0;transform:translateX(-50%) scale(.92)}
+  6%{height:120px;opacity:1;transform:translateX(-50%) scale(1.02)}
+  22%{height:270px;opacity:1;transform:translateX(-50%) scale(1.08)}
+  48%{height:340px;opacity:1;transform:translateX(-50%) scale(1.12)}
+  74%{height:350px;opacity:1;transform:translateX(-50%) scale(1.10)}
+  100%{height:360px;opacity:0;transform:translateX(-50%) scale(1.18)}
+}
+.cloud{
+  position:absolute;
+  left:50%;
+  bottom:0;
+  transform:translateX(-50%);
+  background:#fff;
+  border:2px solid #d8e3ef;
+  border-radius:50%;
+}
+.c1{
+  width:150px;height:88px;
+  box-shadow:-52px 12px 0 0 #fff, 52px 16px 0 0 #fff, -24px -28px 0 0 #fff, 30px -18px 0 0 #fff;
+}
+.c2{
+  width:116px;height:70px; bottom:82px; left:44%;
+  box-shadow:-36px 10px 0 0 #fff, 28px 8px 0 0 #fff;
+}
+.c3{
+  width:100px;height:60px; bottom:144px; left:58%;
+  box-shadow:-28px 8px 0 0 #fff, 28px 10px 0 0 #fff;
+}
+.c4{
+  width:130px;height:72px; bottom:206px; left:48%;
+  box-shadow:-30px 8px 0 0 #fff, 30px 10px 0 0 #fff;
+}
+.c5{
+  width:86px;height:52px; bottom:268px; left:57%;
+  box-shadow:-20px 8px 0 0 #fff, 20px 8px 0 0 #fff;
+}
+.spray{
+  position:absolute;
+  left:50%;
+  bottom:22px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 0 8px rgba(255,255,255,.8);
+  opacity:0;
+}
+.foam.active .spray{
+  animation:spurt 4.0s ease-out forwards;
+}
+@keyframes spurt{
+  0%{transform:translate(0,0) scale(.4);opacity:0}
+  8%{opacity:1}
+  70%{opacity:1}
+  100%{transform:translate(var(--dx), var(--dy)) scale(1.35);opacity:0}
+}
+.bubble{
+  position:absolute;
+  border-radius:50%;
+  border:2px solid #d6eaff;
+  background:rgba(255,255,255,.78);
+  opacity:0;
+}
+.foam.active .bubble{
+  animation:bubbleUp 4.4s ease-out forwards;
+}
+@keyframes bubbleUp{
+  0%{transform:translateY(180px) scale(.55);opacity:0}
+  10%{opacity:1}
+  75%{opacity:1}
+  100%{transform:translate(var(--bx), var(--by)) scale(1.5);opacity:0}
+}
+.flash{
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.92), rgba(255,255,255,.2) 30%, transparent 58%);
+  opacity:0;
+  pointer-events:none;
+}
+.flash.active{
+  animation:flash .65s ease-out;
+}
+@keyframes flash{
+  0%{opacity:0}
+  18%{opacity:1}
+  100%{opacity:0}
+}
+
+/* 演出文字 */
+.banner{
+  position:absolute;
+  left:50%;
+  top:18px;
+  transform:translateX(-50%);
+  min-width:240px;
+  padding:10px 18px;
+  border-radius:999px;
+  font-size:1.05rem;
+  font-weight:900;
+  letter-spacing:.03em;
+  color:#fff;
+  background:linear-gradient(90deg,#1d4ed8,#2563eb);
+  box-shadow:0 8px 18px rgba(37,99,235,.25);
+  opacity:0;
+  transition:opacity .25s ease, transform .25s ease, background .25s ease;
+}
+.banner.show{
+  opacity:1;
+}
+.banner.warning{
+  background:linear-gradient(90deg,#d97706,#f59e0b);
+}
+.banner.danger{
+  background:linear-gradient(90deg,#c1121f,#ef4444);
+  transform:translateX(-50%) scale(1.05);
+}
+.banner.fizz{
+  background:linear-gradient(90deg,#0f766e,#14b8a6);
+  transform:translateX(-50%) scale(1.08);
+}
+
+.pressure{
+  margin-top:12px;
+  text-align:left;
+}
+.pressure-title{
+  display:flex;
+  justify-content:space-between;
+  font-weight:700;
+  margin-bottom:5px;
+}
+.meter{
+  height:24px;
+  border:1px solid #bfc5cc;
+  border-radius:999px;
+  background:#eef2f5;
+  overflow:hidden;
+}
+#bar{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#5bb7ff,#ffc857,#ef4444,#b40000);
+  transition:width .08s linear;
+}
+.readout{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:10px;
+}
+.card{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  padding:8px 5px;
+}
+.small{font-size:.78rem;opacity:.7}
+.value{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums}
+.note{
+  font-size:.85rem;
+  line-height:1.55;
+  color:#444;
+  margin-top:10px;
+}
+.warn{
+  color:#b00020;
+  font-weight:700;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>炭酸ジュース ふってシュワー！</h1>
+
+  <div class="note" style="margin:0 0 10px; font-weight:700; color:#b00020;">
+    スマホを落とさないよう，両手でしっかり持って振ってください．
+  </div>
+  <p class="lead">
+    スマホを炭酸ジュースの缶に見立てて振ってみよう．<br>
+    たくさん振ると……「プシュッ！」そして泡が激しくシュワーッ！
+  </p>
+
+  <div class="controls">
+    <button id="start">センサー開始</button>
+    <button id="reset">リセット</button>
+  </div>
+
+  <div id="status">「センサー開始」を押してください．</div>
+
+  <div class="scene">
+    <div id="banner" class="banner">振ってください！</div>
+    <div id="flash" class="flash"></div>
+
+    <div id="foam" class="foam">
+      <div class="cloud c1"></div>
+      <div class="cloud c2"></div>
+      <div class="cloud c3"></div>
+      <div class="cloud c4"></div>
+      <div class="cloud c5"></div>
+
+      <div class="bubble" style="left:18px; bottom:2px; width:26px; height:26px; --bx:-30px; --by:-250px;"></div>
+      <div class="bubble" style="left:44px; bottom:20px; width:18px; height:18px; --bx:-10px; --by:-300px;"></div>
+      <div class="bubble" style="left:68px; bottom:8px; width:16px; height:16px; --bx:10px; --by:-240px;"></div>
+      <div class="bubble" style="left:94px; bottom:25px; width:32px; height:32px; --bx:22px; --by:-330px;"></div>
+      <div class="bubble" style="left:126px; bottom:5px; width:20px; height:20px; --bx:45px; --by:-270px;"></div>
+      <div class="bubble" style="left:152px; bottom:22px; width:24px; height:24px; --bx:62px; --by:-305px;"></div>
+      <div class="bubble" style="left:178px; bottom:10px; width:15px; height:15px; --bx:75px; --by:-245px;"></div>
+      <div class="bubble" style="left:104px; bottom:50px; width:12px; height:12px; --bx:0px; --by:-350px;"></div>
+      <div class="bubble" style="left:58px; bottom:58px; width:14px; height:14px; --bx:-35px; --by:-320px;"></div>
+      <div class="bubble" style="left:148px; bottom:58px; width:14px; height:14px; --bx:40px; --by:-325px;"></div>
+      <div class="bubble" style="left:210px; bottom:16px; width:13px; height:13px; --bx:90px; --by:-265px;"></div>
+      <div class="bubble" style="left:12px; bottom:52px; width:11px; height:11px; --bx:-62px; --by:-295px;"></div>
+      <div class="bubble" style="left:120px; bottom:92px; width:17px; height:17px; --bx:8px; --by:-355px;"></div>
+
+      <div class="spray" style="--dx:-95px; --dy:-285px;"></div>
+      <div class="spray" style="--dx:-68px; --dy:-350px;"></div>
+      <div class="spray" style="--dx:-34px; --dy:-395px;"></div>
+      <div class="spray" style="--dx:0px; --dy:-430px;"></div>
+      <div class="spray" style="--dx:32px; --dy:-398px;"></div>
+      <div class="spray" style="--dx:66px; --dy:-355px;"></div>
+      <div class="spray" style="--dx:100px; --dy:-280px;"></div>
+      <div class="spray" style="--dx:-18px; --dy:-375px;"></div>
+      <div class="spray" style="--dx:16px; --dy:-370px;"></div>
+    </div>
+
+    <div id="can" class="can">
+      <div class="tab"></div>
+      <div class="logo">SODA</div>
+      <div class="sublogo">CARBONATED DRINK</div>
+    </div>
+  </div>
+
+  <div class="pressure">
+    <div class="pressure-title">
+      <span>振った量</span>
+      <span><span id="percent">0</span>%</span>
+    </div>
+    <div class="meter"><div id="bar"></div></div>
+  </div>
+
+  <div class="readout">
+    <div class="card">
+      <div class="small">動きの大きさ</div>
+      <div class="value"><span id="motion">0.0</span> m/s²</div>
+    </div>
+    <div class="card">
+      <div class="small">状態</div>
+      <div class="value" id="stateText">待機</div>
+    </div>
+  </div>
+
+  
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+let running=false;
+let pressure=0;
+let exploded=false;
+let audioCtx=null;
+let shakeNoise=null;
+let shakeGain=null;
+let shakingSoundOn=false;
+let lastStrongMotionTime=0;
+
+const PRESSURE_MAX = 220;  // さらに長く振らないと開かない
+const SHAKE_SOUND_START = 2.8;
+const STRONG_SHAKE = 4.0;
+
+function detectDevice(){
+  const ua=navigator.userAgent||"";
+  const p=navigator.platform||"";
+  const t=navigator.maxTouchPoints||0;
+  if(/iPhone/.test(ua)) return "iPhone";
+  if(/iPad/.test(ua)||(p==="MacIntel"&&t>1)) return "iPad";
+  if(/Android/.test(ua)) return "Android";
+  return "その他";
+}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  }
+  if(audioCtx.state==="suspended") audioCtx.resume();
+}
+
+function createShakeSound(){
+  ensureAudio();
+  if(shakeNoise) return;
+
+  const bufferSize = audioCtx.sampleRate * 2;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++){
+    data[i] = (Math.random()*2-1) * 0.8;
+  }
+
+  shakeNoise = audioCtx.createBufferSource();
+  shakeNoise.buffer = buffer;
+  shakeNoise.loop = true;
+
+  const hp = audioCtx.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 1000;
+
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 2800;
+  bp.Q.value = 0.8;
+
+  shakeGain = audioCtx.createGain();
+  shakeGain.gain.value = 0.0;
+
+  shakeNoise.connect(hp).connect(bp).connect(shakeGain).connect(audioCtx.destination);
+  shakeNoise.start();
+}
+
+function setShakeSound(on, intensity=0){
+  createShakeSound();
+  const now = audioCtx.currentTime;
+  const target = on ? (0.03 + 0.08 * clamp(intensity/12, 0, 1)) : 0.0;
+  shakeGain.gain.cancelScheduledValues(now);
+  shakeGain.gain.linearRampToValueAtTime(target, now + 0.05);
+  shakingSoundOn = on;
+}
+
+function playPopAndFizz(){
+  ensureAudio();
+  const now=audioCtx.currentTime;
+
+  // プシュッ
+  const len=Math.floor(audioCtx.sampleRate*0.28);
+  const buf=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const ch=buf.getChannelData(0);
+  for(let i=0;i<len;i++){
+    const env=Math.exp(-i/(audioCtx.sampleRate*0.06));
+    ch[i]=(Math.random()*2-1)*env;
+  }
+  const noise=audioCtx.createBufferSource();
+  noise.buffer=buf;
+
+  const hp=audioCtx.createBiquadFilter();
+  hp.type="highpass";
+  hp.frequency.value=1200;
+
+  const ng=audioCtx.createGain();
+  ng.gain.setValueAtTime(0.95,now);
+
+  noise.connect(hp).connect(ng).connect(audioCtx.destination);
+  noise.start(now);
+
+  // ポン
+  const osc=audioCtx.createOscillator();
+  osc.type="triangle";
+  osc.frequency.setValueAtTime(210, now);
+  osc.frequency.exponentialRampToValueAtTime(90, now+0.18);
+
+  const og=audioCtx.createGain();
+  og.gain.setValueAtTime(0.001, now);
+  og.gain.linearRampToValueAtTime(0.14, now+0.02);
+  og.gain.exponentialRampToValueAtTime(0.001, now+0.20);
+
+  osc.connect(og).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now+0.22);
+
+  // 長めの激しいシュワー
+  const len2=Math.floor(audioCtx.sampleRate*4.8);
+  const buf2=audioCtx.createBuffer(1,len2,audioCtx.sampleRate);
+  const ch2=buf2.getChannelData(0);
+  for(let i=0;i<len2;i++){
+    ch2[i]=(Math.random()*2-1)*0.72;
+  }
+  const hiss=audioCtx.createBufferSource();
+  hiss.buffer=buf2;
+
+  const bp=audioCtx.createBiquadFilter();
+  bp.type="bandpass";
+  bp.frequency.value=4300;
+  bp.Q.value=0.7;
+
+  const hg=audioCtx.createGain();
+  hg.gain.setValueAtTime(0.0,now+0.10);
+  hg.gain.linearRampToValueAtTime(0.58,now+0.25);
+  hg.gain.linearRampToValueAtTime(0.46,now+1.2);
+  hg.gain.linearRampToValueAtTime(0.25,now+3.0);
+  hg.gain.exponentialRampToValueAtTime(0.02,now+4.7);
+
+  hiss.connect(bp).connect(hg).connect(audioCtx.destination);
+  hiss.start(now+0.08);
+  hiss.stop(now+4.9);
+}
+
+function showBanner(text, mode="show"){
+  const b = $("banner");
+  b.textContent = text;
+  b.className = "banner show";
+  if(mode === "warning") b.classList.add("warning");
+  if(mode === "danger") b.classList.add("danger");
+  if(mode === "fizz") b.classList.add("fizz");
+}
+
+function triggerFizz(){
+  if(exploded) return;
+  exploded=true;
+  pressure=PRESSURE_MAX;
+  updateUI();
+
+  setShakeSound(false);
+
+  $("stateText").textContent="プシュッ！";
+  $("status").textContent="プシュッ！　激しくシュワーッ！";
+  showBanner("プシュッ！ シュワー！！", "fizz");
+
+  const can=$("can");
+  can.classList.remove("shake");
+  can.classList.add("pop");
+
+  const foam=$("foam");
+  foam.classList.remove("active");
+  void foam.offsetWidth;
+  foam.classList.add("active");
+
+  const flash=$("flash");
+  flash.classList.remove("active");
+  void flash.offsetWidth;
+  flash.classList.add("active");
+
+  playPopAndFizz();
+
+  setTimeout(()=>{
+    $("stateText").textContent="泡があふれている！";
+  },450);
+}
+
+function updateUI(){
+  const ratio = clamp(pressure / PRESSURE_MAX, 0, 1);
+  const p=Math.round(ratio*100);
+  $("percent").textContent=p;
+  $("bar").style.width=p+"%";
+}
+
+function onMotion(e){
+  if(!running || exploded) return;
+
+  const a=e.accelerationIncludingGravity || e.acceleration;
+  if(!a) return;
+
+  const x=Number.isFinite(a.x)?a.x:0;
+  const y=Number.isFinite(a.y)?a.y:0;
+  const z=Number.isFinite(a.z)?a.z:0;
+
+  const mag=Math.sqrt(x*x+y*y+z*z);
+  const motion=Math.abs(mag-9.81);
+  $("motion").textContent=motion.toFixed(1);
+
+  const now = performance.now();
+
+  if(motion > SHAKE_SOUND_START){
+    setShakeSound(true, motion);
+    lastStrongMotionTime = now;
+  }else if(shakingSoundOn && now - lastStrongMotionTime > 160){
+    setShakeSound(false);
+  }
+
+  if(motion > STRONG_SHAKE){
+    const add = Math.min(4.8, (motion-STRONG_SHAKE)*0.42); // たまりにくくして長く振る
+    pressure += add;
+
+    const can=$("can");
+    can.classList.remove("shake");
+    void can.offsetWidth;
+    can.classList.add("shake");
+
+    if(pressure < PRESSURE_MAX*0.20){
+      $("stateText").textContent="シャカシャカ";
+      showBanner("もっと振ってください！", "show");
+    }else if(pressure < PRESSURE_MAX*0.45){
+      $("stateText").textContent="かなり振った！";
+      showBanner("だんだん危険！", "warning");
+    }else if(pressure < PRESSURE_MAX*0.72){
+      $("stateText").textContent="危険！";
+      showBanner("振りすぎ危険！", "danger");
+    }else{
+      $("stateText").textContent="もうすぐ開く…";
+      showBanner("危険！ もうすぐ開く！", "danger");
+    }
+
+    updateUI();
+
+    if(pressure>=PRESSURE_MAX){
+      triggerFizz();
+    }
+  }else{
+    pressure = Math.max(0, pressure - 0.12); // 少しだけ自然減衰
+    updateUI();
+
+    if(pressure < PRESSURE_MAX*0.08 && !exploded){
+      $("stateText").textContent = "振ってください";
+      showBanner("振ってください！", "show");
+    }
+  }
+}
+
+async function startSensor(){
+  try{
+    if(!window.isSecureContext){
+      throw new Error("HTTPSで開いてください．");
+    }
+
+    ensureAudio();
+
+    if(typeof DeviceMotionEvent==="undefined"){
+      throw new Error("この端末では加速度センサを利用できません．");
+    }
+
+    const device=detectDevice();
+
+    if(
+      (device==="iPhone" || device==="iPad") &&
+      typeof DeviceMotionEvent.requestPermission==="function"
+    ){
+      const result=await DeviceMotionEvent.requestPermission();
+      if(result!=="granted"){
+        throw new Error("センサー利用が許可されませんでした．");
+      }
+    }
+
+    window.removeEventListener("devicemotion",onMotion);
+    window.addEventListener("devicemotion",onMotion);
+
+    running=true;
+    $("start").disabled=true;
+    $("stateText").textContent="振ってください";
+    $("status").textContent=
+      device+"：スマホをしっかり持って，前より長く強めに振ってください．";
+    showBanner("振ってください！", "show");
+
+  }catch(err){
+    $("status").textContent="開始できません："+err.message;
+  }
+}
+
+function resetAll(){
+  pressure=0;
+  exploded=false;
+
+  $("foam").classList.remove("active");
+  $("flash").classList.remove("active");
+  $("can").classList.remove("pop","shake");
+
+  $("motion").textContent="0.0";
+  $("stateText").textContent=running ? "振ってください" : "待機";
+  $("status").textContent=running
+    ? "スマホをしっかり持って，前より長く強めに振ってください．"
+    : "「センサー開始」を押してください．";
+
+  if(shakingSoundOn) setShakeSound(false);
+  showBanner(running ? "振ってください！" : "待機中", "show");
+  updateUI();
+}
+
+$("start").addEventListener("click",startSensor);
+$("reset").addEventListener("click",resetAll);
+
+showBanner("待機中", "show");
+updateUI();
+</script>
+</body>
+</html>
