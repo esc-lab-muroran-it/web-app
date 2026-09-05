@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>見つめる顔 - 姿勢センサデモ</title>
+<style>
+:root{
+  color-scheme:light;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+}
+body{
+  margin:0;
+  padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));
+  background:#fff;
+  color:#111;
+}
+.wrap{
+  max-width:680px;
+  margin:0 auto;
+}
+h1{
+  text-align:center;
+  font-size:1.45rem;
+  margin:6px 0 8px;
+}
+.lead{
+  text-align:center;
+  font-size:.92rem;
+  line-height:1.55;
+  margin:0 0 10px;
+}
+.controls{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-bottom:10px;
+}
+button{
+  font:inherit;
+  font-weight:700;
+  padding:11px 10px;
+  border:1px solid #bfc5cc;
+  border-radius:10px;
+  background:#fff;
+  color:#111;
+}
+button:disabled{opacity:.45}
+#status{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  padding:9px 10px;
+  background:#f6f8fa;
+  margin-bottom:10px;
+  font-size:.9rem;
+  line-height:1.45;
+}
+.cards{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:7px;
+  margin-bottom:10px;
+}
+.card{
+  border:1px solid #d0d7de;
+  border-radius:10px;
+  padding:7px 3px;
+  text-align:center;
+}
+.small{font-size:.75rem;opacity:.7}
+.value{
+  font-size:1.05rem;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+.facebox{
+  position:relative;
+  width:min(92vw,560px);
+  aspect-ratio:1/1.08;
+  margin:0 auto;
+}
+.face{
+  position:absolute;
+  inset:0;
+  border:4px solid #222;
+  border-radius:46% 46% 48% 48%;
+  background:#ffe3bd;
+  overflow:hidden;
+  box-shadow:0 8px 24px rgba(0,0,0,.08);
+}
+.eyebrow{
+  position:absolute;
+  top:23%;
+  width:24%;
+  height:9px;
+  background:#333;
+  border-radius:999px;
+}
+.browL{left:16%;transform:rotate(-6deg)}
+.browR{right:16%;transform:rotate(6deg)}
+.eyes{
+  position:absolute;
+  top:31%;
+  left:0;
+  right:0;
+  display:flex;
+  justify-content:center;
+  gap:9%;
+}
+.eye{
+  width:31%;
+  aspect-ratio:1.05/1;
+  border:4px solid #222;
+  border-radius:50%;
+  background:#fff;
+  position:relative;
+  overflow:hidden;
+}
+.iris{
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:45%;
+  aspect-ratio:1/1;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:#6f8f5e;
+  will-change:transform;
+}
+.pupil{
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:48%;
+  aspect-ratio:1/1;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:#111;
+}
+.glint{
+  position:absolute;
+  width:24%;
+  height:24%;
+  border-radius:50%;
+  background:#fff;
+  left:18%;
+  top:13%;
+}
+.nose{
+  position:absolute;
+  left:50%;
+  top:52%;
+  width:22px;
+  height:48px;
+  border-left:4px solid #bb825e;
+  border-bottom:4px solid #bb825e;
+  border-radius:0 0 0 16px;
+  transform:translateX(-50%);
+}
+.mouth{
+  position:absolute;
+  left:35%;
+  top:70%;
+  width:30%;
+  height:13%;
+  border-bottom:5px solid #8c3f3f;
+  border-radius:0 0 50% 50%;
+}
+.caption{
+  text-align:center;
+  font-weight:700;
+  margin-top:10px;
+}
+.note{
+  margin-top:10px;
+  font-size:.86rem;
+  line-height:1.55;
+  color:#444;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>ずっと見つめる顔</h1>
+
+<p class="lead">
+スマホを傾けても，姿勢センサから「あなたがいる方向」を計算し，
+瞳がその方向を見続けます．
+</p>
+
+<div class="controls">
+  <button id="start">センサー開始</button>
+  <button id="calibrate" disabled>正面を再設定</button>
+  <button id="toggle" disabled>追従：ON</button>
+  <button id="stop" disabled>停止</button>
+</div>
+
+<div id="status">
+スマホを自分の正面に持ち，「センサー開始」を押してください．
+</div>
+
+<div class="cards">
+  <div class="card"><div class="small">α</div><div class="value"><span id="alpha">--</span>°</div></div>
+  <div class="card"><div class="small">β</div><div class="value"><span id="beta">--</span>°</div></div>
+  <div class="card"><div class="small">γ</div><div class="value"><span id="gamma">--</span>°</div></div>
+</div>
+
+<div class="facebox">
+  <div class="face">
+    <div class="eyebrow browL"></div>
+    <div class="eyebrow browR"></div>
+
+    <div class="eyes">
+      <div class="eye">
+        <div id="irisL" class="iris">
+          <div class="pupil"><div class="glint"></div></div>
+        </div>
+      </div>
+      <div class="eye">
+        <div id="irisR" class="iris">
+          <div class="pupil"><div class="glint"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nose"></div>
+    <div class="mouth"></div>
+  </div>
+</div>
+
+<div class="caption">スマホを左右・上下に傾けてみよう</div>
+
+<div class="note">
+開始時の姿勢で「あなたは画面の真正面にいる」と仮定します．
+その方向を空間上に固定し，スマホの現在姿勢から見た方向へ瞳を移動します．
+「追従：OFF」にすると瞳は中央に固定されます．
+</div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let running=false;
+let tracking=true;
+let calibrated=false;
+
+let latest={alpha:0,beta:0,gamma:0};
+
+let refR=I3();
+let targetWorld={x:0,y:0,z:1};
+
+let targetEyeX=0;
+let targetEyeY=0;
+let eyeX=0;
+let eyeY=0;
+
+function detectDevice(){
+  const ua=navigator.userAgent||"";
+  const p=navigator.platform||"";
+  const t=navigator.maxTouchPoints||0;
+
+  if(/iPhone/.test(ua)) return "iPhone";
+  if(/iPad/.test(ua)||(p==="MacIntel"&&t>1)) return "iPad";
+  if(/Android/.test(ua)) return "Android";
+  return "その他";
+}
+
+function I3(){
+  return [[1,0,0],[0,1,0],[0,0,1]];
+}
+
+function mul(A,B){
+  const C=[[0,0,0],[0,0,0],[0,0,0]];
+  for(let i=0;i<3;i++){
+    for(let j=0;j<3;j++){
+      C[i][j]=
+        A[i][0]*B[0][j]+
+        A[i][1]*B[1][j]+
+        A[i][2]*B[2][j];
+    }
+  }
+  return C;
+}
+
+function T(A){
+  return [
+    [A[0][0],A[1][0],A[2][0]],
+    [A[0][1],A[1][1],A[2][1]],
+    [A[0][2],A[1][2],A[2][2]]
+  ];
+}
+
+function rx(a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return [[1,0,0],[0,c,-s],[0,s,c]];
+}
+
+function ry(a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return [[c,0,s],[0,1,0],[-s,0,c]];
+}
+
+function rz(a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return [[c,-s,0],[s,c,0],[0,0,1]];
+}
+
+function orientationMatrix(alpha,beta,gamma){
+  const a=alpha*Math.PI/180;
+  const b=beta*Math.PI/180;
+  const g=gamma*Math.PI/180;
+
+  // DeviceOrientation: Z → X' → Y''
+  return mul(mul(rz(a),rx(b)),ry(g));
+}
+
+function matVec(R,v){
+  return {
+    x:R[0][0]*v.x+R[0][1]*v.y+R[0][2]*v.z,
+    y:R[1][0]*v.x+R[1][1]*v.y+R[1][2]*v.z,
+    z:R[2][0]*v.x+R[2][1]*v.y+R[2][2]*v.z
+  };
+}
+
+function clamp(v,min,max){
+  return Math.max(min,Math.min(max,v));
+}
+
+function calibrate(){
+  refR=orientationMatrix(
+    latest.alpha,
+    latest.beta,
+    latest.gamma
+  );
+
+  // 開始時の「画面正面方向」を空間上に固定
+  targetWorld=matVec(refR,{x:0,y:0,z:1});
+
+  calibrated=true;
+  updateGaze();
+
+  $("status").textContent=
+    "正面を設定しました．スマホを左右・上下に傾けてください．";
+}
+
+function updateGaze(){
+  if(!tracking || !calibrated){
+    targetEyeX=0;
+    targetEyeY=0;
+    return;
+  }
+
+  const currentR=orientationMatrix(
+    latest.alpha,
+    latest.beta,
+    latest.gamma
+  );
+
+  // 空間に固定した「自分の方向」を，
+  // 現在のスマホ座標へ変換
+  const dir=matVec(T(currentR),targetWorld);
+
+  // 画面に対する視線方向へ投影
+  const z=Math.max(0.25,Math.abs(dir.z));
+
+  const nx=clamp(dir.x/z,-0.9,0.9);
+  const ny=clamp(dir.y/z,-0.9,0.9);
+
+  // 瞳の移動量
+  targetEyeX=nx*36;
+  targetEyeY=-ny*30;
+}
+
+function onOrientation(e){
+  if(!running) return;
+
+  if(Number.isFinite(e.alpha)) latest.alpha=e.alpha;
+  if(Number.isFinite(e.beta)) latest.beta=e.beta;
+  if(Number.isFinite(e.gamma)) latest.gamma=e.gamma;
+
+  $("alpha").textContent=latest.alpha.toFixed(1);
+  $("beta").textContent=latest.beta.toFixed(1);
+  $("gamma").textContent=latest.gamma.toFixed(1);
+
+  if(!calibrated) calibrate();
+  else updateGaze();
+}
+
+function animateEyes(){
+  eyeX += (targetEyeX-eyeX)*0.24;
+  eyeY += (targetEyeY-eyeY)*0.24;
+
+  const transform=
+    `translate(calc(-50% + ${eyeX}px), calc(-50% + ${eyeY}px))`;
+
+  $("irisL").style.transform=transform;
+  $("irisR").style.transform=transform;
+
+  requestAnimationFrame(animateEyes);
+}
+
+async function startSensor(){
+  try{
+    if(!window.isSecureContext){
+      throw new Error("HTTPSで開いてください．");
+    }
+
+    if(typeof DeviceOrientationEvent==="undefined"){
+      throw new Error("この端末では姿勢センサーを利用できません．");
+    }
+
+    const device=detectDevice();
+
+    if(
+      (device==="iPhone" || device==="iPad") &&
+      typeof DeviceOrientationEvent.requestPermission==="function"
+    ){
+      const result=
+        await DeviceOrientationEvent.requestPermission();
+
+      if(result!=="granted"){
+        throw new Error("センサー利用が許可されませんでした．");
+      }
+    }
+
+    running=true;
+    tracking=true;
+    calibrated=false;
+
+    window.removeEventListener(
+      "deviceorientation",
+      onOrientation
+    );
+    window.addEventListener(
+      "deviceorientation",
+      onOrientation
+    );
+
+    $("start").disabled=true;
+    $("calibrate").disabled=false;
+    $("toggle").disabled=false;
+    $("stop").disabled=false;
+    $("toggle").textContent="追従：ON";
+
+    $("status").textContent=
+      device+"：姿勢を取得中です．現在の向きを正面として設定します．";
+
+  }catch(err){
+    $("status").textContent=
+      "開始できません："+err.message;
+  }
+}
+
+function stopSensor(){
+  running=false;
+  calibrated=false;
+
+  window.removeEventListener(
+    "deviceorientation",
+    onOrientation
+  );
+
+  targetEyeX=0;
+  targetEyeY=0;
+
+  $("start").disabled=false;
+  $("calibrate").disabled=true;
+  $("toggle").disabled=true;
+  $("stop").disabled=true;
+
+  $("alpha").textContent="--";
+  $("beta").textContent="--";
+  $("gamma").textContent="--";
+
+  $("status").textContent="停止中";
+}
+
+$("start").addEventListener("click",startSensor);
+$("calibrate").addEventListener("click",calibrate);
+
+$("toggle").addEventListener("click",()=>{
+  tracking=!tracking;
+  $("toggle").textContent=
+    tracking ? "追従：ON" : "追従：OFF";
+
+  updateGaze();
+});
+
+$("stop").addEventListener("click",stopSensor);
+
+animateEyes();
+</script>
+</body>
+</html>
